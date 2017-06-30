@@ -1,8 +1,7 @@
 package com.nov21th.tcp;
 
-import com.nov21th.common.Constant;
+import com.nov21th.util.IPUtil;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -20,41 +19,32 @@ import java.util.Map;
 /**
  * Created by g29 on 17-6-28.
  */
-public class TCPServer extends Thread {
+public abstract class TCPServer extends Thread {
 
-    private static final Logger logger = LoggerFactory.getLogger(TCPServer.class);
+    protected final Logger logger = getLogger();
 
     /**
      * 默认缓冲区大小
      */
-    private static final int DEFAULT_BUFFER_SIZE = 10 * 1024;
+    private static final int DEFAULT_BUFFER_SIZE = 1024;
 
     /**
      * TCP服务器运行的端口号
      */
     private int port;
 
-    /**
-     * P2P客户机的共享路径
-     */
-    private String repository;
+    protected ByteBuffer buffer;
 
-    private ByteBuffer buffer;
+    protected Map<SocketAddress, TCPTransferState> requestMap;
 
-    private Map<SocketAddress, TCPTransferState> requestMap;
-
-    public TCPServer(int port, String repository) {
-        this(port, DEFAULT_BUFFER_SIZE, repository);
+    public TCPServer(int port) {
+        this(port, DEFAULT_BUFFER_SIZE);
     }
 
-    public TCPServer(int port, int bufferSize, String repository) {
-        if (!repository.endsWith("/")) {
-            repository += "/";
-        }
+    public TCPServer(int port, int bufferSize) {
         this.port = port;
-        this.repository = repository;
+        this.buffer = ByteBuffer.allocate(bufferSize);
 
-        buffer = ByteBuffer.allocate(bufferSize);
         requestMap = new HashMap<>();
     }
 
@@ -84,7 +74,7 @@ public class TCPServer extends Thread {
 
                             sc.register(selector, SelectionKey.OP_READ);
 
-                            logger.info("对等方连入：{}", sc.getRemoteAddress());
+                            logger.info("对等方连入：{}", IPUtil.extractIP(sc.getRemoteAddress()));
                         } else if (sk.isReadable()) {
                             if (sk.channel() instanceof SocketChannel) {
                                 read(sk);
@@ -126,38 +116,25 @@ public class TCPServer extends Thread {
         } catch (IOException e) {
             bytesRead = -1;
         }
-        logger.info("接收到TCP数据，接收自：{}，已接收：{}字节", addr, out.size());
+        logger.info("接收到TCP数据，接收自：{}，已接收：{}字节", IPUtil.extractIP(addr), out.size());
 
         if (bytesRead == -1) {
-            logger.info("数据接收完毕，接收自：{}", addr);
+            try {
+                logger.info("数据接收完毕，接收自：{}", IPUtil.extractIP(addr));
 
-            byte[] data = out.toByteArray();
-
-            int headerLength = -1;
-            for (int i = 0; i < Math.min(100, data.length); i++) {
-                if ((char) data[i] == '\n') {
-                    headerLength = i;
-                    break;
-                }
-            }
-
-            if (headerLength == -1) {
-                logger.error("无效的数据头");
-                return;
-            }
-
-            String header = new String(data, 0, headerLength);
-            if (header.equals(Constant.CMD_CONNECT)) {
-                logger.info("对等方请求进行身份认证：{}", addr);
-            } else if (header.equals(Constant.CMD_REQUEST)) {
-                String filename = new String(data, Constant.CMD_REQUEST.length() + 1, data.length - Constant.CMD_REQUEST.length() - 1);
-
-                logger.info("对等方请求文件传输：{}，请求文件：{}", addr, filename);
-
-
+                onDataReceived(sk, out.toByteArray());
+            } finally {
+                requestMap.remove(addr);
+                out.close();
+                sc.close();
+                sk.cancel();
             }
         }
     }
+
+    protected abstract Logger getLogger();
+
+    protected abstract void onDataReceived(SelectionKey sk, byte[] data) throws Exception;
 
     /**
      * TCP传输状态类，由于TCP本身具有的可靠传输的特性

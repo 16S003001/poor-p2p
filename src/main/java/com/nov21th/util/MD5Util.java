@@ -9,7 +9,7 @@ import java.security.MessageDigest;
  * @author 郭永辉
  * @since 1.0 2017/6/24.
  */
-public class FileUtil {
+public class MD5Util {
 
     public static String getMD5(byte[] data) throws Exception {
         MessageDigest md5 = MessageDigest.getInstance("MD5");
@@ -28,7 +28,7 @@ public class FileUtil {
         return toHexString(md5.digest());
     }
 
-    public static String toHexString(byte[] buffer) {
+    private static String toHexString(byte[] buffer) {
         StringBuilder sb = new StringBuilder();
         for (byte b : buffer) {
             String temp = Integer.toHexString(b & 0xFF);
